@@ -2,3 +2,10 @@
 *.pyc
 /runs/
 /saved_model/
+/results/
+/.venv/
+/__pycache__/
+*.pth
+*.pt
+*.safetensors
+.env

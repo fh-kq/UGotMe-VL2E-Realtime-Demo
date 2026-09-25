@@ -9,7 +9,8 @@ import torch
 import torchvision.transforms as transforms
 import pandas as pd
 import random
-import librosa
+import logging  # NOTE: used by get_meld_vocabs() below but missing from the original repo
+# import librosa  # NOTE: dead import, only referenced by the commented-out audio branch
 import vocab
 # from collections import defaultdict
 
@@ -24,7 +25,7 @@ from transformers import AutoTokenizer, AutoProcessor #, AutoImageProcessor, Dat
 
 
 torch.set_default_dtype(torch.float32)
-transform, resize = None, None
+transform, resize = {}, None
 tokenizer = None
 # audio_processor, tokenizer = None, None
 
@@ -75,9 +76,9 @@ class Resize:
 
 def get_transform(cfg, split_type):
 	global transform
-	if transform is None:
-		transform = Transform(cfg, split_type)
-	return transform
+	if split_type not in transform:
+		transform[split_type] = Transform(cfg, split_type)
+	return transform[split_type]
 
 def get_resize(target_size=160): # for InceptionResnetV1
 	global resize
@@ -92,6 +93,10 @@ def preprocess_input_vision_encoder(image_path_list, cfg, split_type, no_padding
 	resize = get_resize()
 
 	img_mask = torch.zeros((VISION_MAX_UTT_LEN,))
+	if not image_path_list:
+		# Recorded missing visual observation: one zero token avoids all-masked attention.
+		img_mask[0] = 1
+		return torch.zeros((VISION_MAX_UTT_LEN, 3, RESNET_IMG_SIZE, RESNET_IMG_SIZE)), img_mask
 	# len_images = len(image_path_list)
 	# img_mask[:len_images] = 1
 	im_list = []
@@ -141,8 +146,11 @@ def preprocess_input_vision_encoder(image_path_list, cfg, split_type, no_padding
 	return img_inputs, img_mask
 
 	
-from transformers import AutoImageProcessor
-video_processor = AutoImageProcessor.from_pretrained("MCG-NJU/videomae-base")
+# NOTE: the original repo builds an AutoImageProcessor for "MCG-NJU/videomae-base"
+# at *module import time*, which forces a HuggingFace download on every import.
+# It is only used by a commented-out line below, so it is removed here.
+# from transformers import AutoImageProcessor
+# video_processor = AutoImageProcessor.from_pretrained("MCG-NJU/videomae-base")
 
 def get_vision_inputs_from_video(video_path, transform_cfg, split_type, max_len=VISION_MAX_UTT_LEN):
 	transform = get_transform(transform_cfg, split_type)
@@ -262,27 +270,19 @@ def load_meld_turn(anno_csv_dir, split_type, vocab_path):
 
 
 def get_openface_aligned_img_paths(anno_csv_path, split_type, img_paths_save_to='openface_img_paths_train.json'):
-	if osp.exists(img_paths_save_to):
-		with open(img_paths_save_to, 'r') as fp:
-			data = json.load(fp)
-		return data
-
-	img_paths = {}
-	face_dir = osp.join(anno_csv_path, f'raw/MELD.Raw/openfacefeat_{split_type}_')
-	utt_names = os.listdir(face_dir)   # 9989
-	for utt_name in utt_names:
-		# img_dir = osp.join(face_dir, utt_name, f'{utt_name}_aligned')
-		img_dir = osp.join(face_dir, utt_name)
-		try:
-			imgs = sorted(os.listdir(img_dir))
-			img_paths[utt_name] = [osp.join(img_dir, img_name) for img_name in imgs]
-		except Exception as e:
-			print(str(e))
-	
-	with open(img_paths_save_to, 'w') as fp:
-		json.dump(img_paths, fp)
-
-	return img_paths
+    # Rebuild from current files; a cache created during extraction is incomplete.
+    face_dir = osp.join(anno_csv_path, f'raw/MELD.Raw/openfacefeat_{split_type}')
+    if not osp.isdir(face_dir):
+        face_dir += '_'  # compatibility with the author's original directory name
+    names = pd.read_csv(osp.join(anno_csv_path, f'{split_type}_sent_emo.csv'))
+    img_paths = {}
+    for _, row in names.iterrows():
+        name = f"dia{row['Dialogue_ID']}_utt{row['Utterance_ID']}"
+        img_paths[name] = sorted(glob.glob(osp.join(face_dir, name, '*.jpg')))
+    os.makedirs(osp.dirname(osp.abspath(img_paths_save_to)), exist_ok=True)
+    with open(img_paths_save_to, 'w') as fp:
+        json.dump(img_paths, fp)
+    return img_paths
 
 
 def get_utt_to_speaker(anno_csv_path, split_type): 
