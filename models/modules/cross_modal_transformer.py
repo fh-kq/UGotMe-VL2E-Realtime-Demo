@@ -7,7 +7,7 @@ from .position_embedding import SinusoidalPositionalEmbedding
 from .multihead_attention import MultiheadAttention
 import math
 
-from mmcv.cnn import xavier_init
+from .init_utils import xavier_init  # was: from mmcv.cnn import xavier_init
 
 class CrossModalTransformerEncoder(nn.Module):
 	"""
