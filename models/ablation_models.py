@@ -16,7 +16,7 @@ import logging
 log = logging.getLogger(__name__)
 
 from utils import *
-from mmcv.cnn import xavier_init
+from models.modules.init_utils import xavier_init  # was: from mmcv.cnn import xavier_init
 
 from conf.config import ATTN_MASK_FILL 
 
